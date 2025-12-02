@@ -14,7 +14,7 @@ services:
   web-server:
     image: qlayinn/cb
     volumes:
-      - ./app:/var/www/ht
+      - ./app:/var/www/html
     ports:
       - "80:80"
     depends_on:
