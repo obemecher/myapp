@@ -4,7 +4,7 @@ pipeline {
     environment {
         STACK = "mystack"
         COMPOSE_FILE = "docker-compose.yaml"
-        MAX_RETRIES = "30"  // максимум 30 попыток (по 10 сек = до 5 минут)
+        MAX_RETRIES = "30"
         SLEEP_INTERVAL = "10"
     }
 
@@ -83,7 +83,7 @@ pipeline {
                         done
 
                         if [[ "\$success" != true ]]; then
-                            echo "Ошибка: не все сервисы поднялись за отведённое время."
+                            echo "Ошибка: не все сервисы достигли состояния 1/1 за отведённое время."
                             exit 1
                         fi
                     """
@@ -91,10 +91,35 @@ pipeline {
             }
         }
 
-        stage('5. Дополнительная диагностика (опционально)') {
+        stage('5. Проверка ошибок в задачах web-server') {
+            steps {
+                script {
+                    sh """#!/bin/bash
+                        echo "Проверка ошибок в задачах сервиса ${STACK}_web-server..."
+
+                        # Получаем все значения из столбца ERROR для задач web-server
+                        errors=\$(docker service ps --no-trunc --format '{{.Error}}' ${STACK}_web-server)
+
+                        # Удаляем пустые строки и проверяем, есть ли хоть какая-то ошибка
+                        non_empty_errors=\$(echo "\$errors" | grep -v '^$')
+
+                        if [[ -n "\$non_empty_errors" ]]; then
+                            echo "Обнаружены ошибки в задачах сервиса ${STACK}_web-server:"
+                            echo "\$non_empty_errors"
+                            echo "Билд завершается с ошибкой."
+                            exit 1
+                        else
+                            echo "Ошибок в задачах сервиса ${STACK}_web-server не обнаружено."
+                        fi
+                    """
+                }
+            }
+        }
+
+        stage('6. Дополнительная диагностика (опционально)') {
             steps {
                 sh 'docker service ls --filter label=com.docker.stack.namespace=${STACK}'
-                sh 'docker service ps ${STACK}_web-server || true'
+                sh 'docker service ps ${STACK}_web-server'
                 sh 'docker service ps ${STACK}_db || true'
                 sh 'docker service ps ${STACK}_phpmyadmin || true'
             }
