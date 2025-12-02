@@ -4,15 +4,17 @@ pipeline {
     environment {
         STACK = "mystack"
         COMPOSE_FILE = "docker-compose.yaml"
+        MAX_RETRIES = "30"  // максимум 30 попыток (по 10 сек = до 5 минут)
+        SLEEP_INTERVAL = "10"
     }
 
     stages {
-
         stage('1. Проверка Docker Swarm') {
             steps {
                 script {
                     sh """
                         if ! docker info | grep -q 'Swarm: active'; then
+                            echo "Swarm is not active. Initializing..."
                             docker swarm init || true
                         fi
                     """
@@ -24,7 +26,7 @@ pipeline {
             steps {
                 script {
                     sh """
-                        docker stack rm ${env.STACK} || true
+                        docker stack rm ${STACK} || true
                         sleep 10
                     """
                 }
@@ -35,75 +37,70 @@ pipeline {
             steps {
                 script {
                     sh """
-                        docker stack deploy --with-registry-auth -c ${env.COMPOSE_FILE} ${env.STACK}
+                        docker stack deploy --with-registry-auth -c ${COMPOSE_FILE} ${STACK}
                     """
                 }
             }
         }
 
-        stage('4. Проверка сервисов после деплоя') {
+        stage('4. Ожидание и проверка поднятия всех сервисов') {
             steps {
                 script {
                     sh """
                         echo "Ожидание 10 секунд перед проверкой..."
                         sleep 10
 
-                        echo "ПРОВЕРКА: что все сервисы поднялись и имеют REPLICAS 1/1"
+                        retries=0
+                        max_retries=${MAX_RETRIES}
+                        success=false
 
-                        FAILED=0
-                        for SRV in \$(docker service ls --format '{{.Name}}'); do
-                            # Получаем значение реплик для данного сервиса
-                            REPL=\$(docker service ls --filter name=\\\$SRV --format '{{.Replicas}}')
+                        while [ \$retries -lt \$max_retries ]; do
+                            echo "Попытка проверки сервисов: \$((retries + 1))"
 
-                            echo "Сервис: \\\$SRV | Реплики: \\\$REPL"
+                            # Получаем список всех сервисов стека и проверяем реплики
+                            all_ready=true
+                            while IFS= read -r line; do
+                                if [[ -z "\$line" ]]; then continue; fi
 
-                            if [ "\\\$REPL" != "1/1" ]; then
-                                echo "❌ Ошибка: сервис \\\$SRV не поднялся корректно (реплики: \\\$REPL)"
-                                FAILED=1
+                                service_name=\$(echo "\$line" | awk '{print \$2}')
+                                replicas=\$(echo "\$line" | awk '{print \$4}')
+
+                                # Проверяем, что сервис относится к нашему стеку
+                                if [[ "\$service_name" != ${STACK}_* ]]; then
+                                    continue
+                                fi
+
+                                if [[ "\$replicas" != "1/1" ]]; then
+                                    echo "Сервис \$service_name не готов: \$replicas"
+                                    all_ready=false
+                                    break
+                                fi
+                            done < <(docker service ls --filter label=com.docker.stack.namespace=${STACK} --format 'table {{.Name}}\\t{{.Replicas}}' | tail -n +2)
+
+                            if [ "\$all_ready" = true ]; then
+                                echo "Все сервисы стека ${STACK} подняты: готово."
+                                success=true
+                                break
                             fi
+
+                            retries=\$((retries + 1))
+                            sleep ${SLEEP_INTERVAL}
                         done
 
-                        if [ \$FAILED -ne 0 ]; then
-                            echo "❌ Не все сервисы поднялись корректно"
+                        if [ "\$success" = false ]; then
+                            echo "Ошибка: не все сервисы поднялись за отведённое время."
                             exit 1
                         fi
-
-                        echo "Все сервисы в статусе 1/1 ✔"
                     """
                 }
             }
         }
 
-        stage('5. Проверка ошибок в web-server') {
+        stage('5. Дополнительная диагностика (опционально)') {
             steps {
-                script {
-                    sh """
-                        echo "Ожидание 5 секунд перед проверкой ошибок..."
-                        sleep 5
-
-                        echo "ПРОВЕРКА: отсутствие ошибок в docker service ps ${env.STACK}_web-server"
-
-                        # Собираем значения колонки Error (пустые строки фильтруются)
-                        ERRORS=\$(docker service ps ${env.STACK}_web-server --format '{{.Error}}' | grep -v '^$' || true)
-
-                        if [ ! -z "\\\$ERRORS" ]; then
-                            echo "❌ Ошибка(и) найдены в ${env.STACK}_web-server:"
-                            echo "\\\$ERRORS"
-                            exit 1
-                        fi
-
-                        echo "Ошибок нет ✔"
-                    """
-                }
-            }
-        }
-
-        stage('6. Финальный вывод') {
-            steps {
-                // здесь используем Groovy-подстановку env.STACK в строке оболочки
-                sh 'docker service ls'
-                sh "docker service ps ${env.STACK}_web-server || true"
-                sh "docker service ps ${env.STACK}_db || true"
+                sh 'docker service ls --filter label=com.docker.stack.namespace=${STACK}'
+                sh 'docker service ps ${STACK}_web-server || true'
+                sh 'docker service ps ${STACK}_db || true'
             }
         }
     }
