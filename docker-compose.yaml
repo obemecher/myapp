@@ -5,7 +5,7 @@ services:
     image: mariadb:10.6
     environment:
       MYSQL_ROOT_PASSWORD: "secret"
-      MYSQL_DATABASE: "MainData"
+      MYSQL_DATABASE: "MainDaa"
     volumes:
       - mysql-data:/var/lib/mysql
     networks:
