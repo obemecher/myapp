@@ -46,39 +46,34 @@ pipeline {
         stage('4. Ожидание и проверка поднятия всех сервисов') {
             steps {
                 script {
-                    sh """
+                    sh """#!/bin/bash
                         echo "Ожидание 10 секунд перед проверкой..."
                         sleep 10
 
                         retries=0
                         max_retries=${MAX_RETRIES}
                         success=false
+                        stack="${STACK}"
 
                         while [ \$retries -lt \$max_retries ]; do
                             echo "Попытка проверки сервисов: \$((retries + 1))"
 
-                            # Получаем список всех сервисов стека и проверяем реплики
                             all_ready=true
                             while IFS= read -r line; do
                                 if [[ -z "\$line" ]]; then continue; fi
 
-                                service_name=\$(echo "\$line" | awk '{print \$2}')
-                                replicas=\$(echo "\$line" | awk '{print \$4}')
-
-                                # Проверяем, что сервис относится к нашему стеку
-                                if [[ "\$service_name" != ${STACK}_* ]]; then
-                                    continue
-                                fi
+                                service_name=\$(echo "\$line" | awk '{print \$1}')
+                                replicas=\$(echo "\$line" | awk '{print \$2}')
 
                                 if [[ "\$replicas" != "1/1" ]]; then
                                     echo "Сервис \$service_name не готов: \$replicas"
                                     all_ready=false
                                     break
                                 fi
-                            done < <(docker service ls --filter label=com.docker.stack.namespace=${STACK} --format 'table {{.Name}}\\t{{.Replicas}}' | tail -n +2)
+                            done < <(docker service ls --filter label=com.docker.stack.namespace=\$stack --format '{{.Name}} {{.Replicas}}')
 
-                            if [ "\$all_ready" = true ]; then
-                                echo "Все сервисы стека ${STACK} подняты: готово."
+                            if [[ "\$all_ready" == true ]]; then
+                                echo "Все сервисы стека \$stack подняты: готово."
                                 success=true
                                 break
                             fi
@@ -87,7 +82,7 @@ pipeline {
                             sleep ${SLEEP_INTERVAL}
                         done
 
-                        if [ "\$success" = false ]; then
+                        if [[ "\$success" != true ]]; then
                             echo "Ошибка: не все сервисы поднялись за отведённое время."
                             exit 1
                         fi
@@ -101,6 +96,7 @@ pipeline {
                 sh 'docker service ls --filter label=com.docker.stack.namespace=${STACK}'
                 sh 'docker service ps ${STACK}_web-server || true'
                 sh 'docker service ps ${STACK}_db || true'
+                sh 'docker service ps ${STACK}_phpmyadmin || true'
             }
         }
     }
