@@ -24,7 +24,7 @@ pipeline {
             steps {
                 script {
                     sh """
-                        docker stack rm ${STACK} || true
+                        docker stack rm ${env.STACK} || true
                         sleep 10
                     """
                 }
@@ -35,7 +35,7 @@ pipeline {
             steps {
                 script {
                     sh """
-                        docker stack deploy --with-registry-auth -c ${COMPOSE_FILE} ${STACK}
+                        docker stack deploy --with-registry-auth -c ${env.COMPOSE_FILE} ${env.STACK}
                     """
                 }
             }
@@ -52,12 +52,13 @@ pipeline {
 
                         FAILED=0
                         for SRV in \$(docker service ls --format '{{.Name}}'); do
-                            REPL=\$(docker service ls --filter name=\$SRV --format '{{.Replicas}}')
+                            # Получаем значение реплик для данного сервиса
+                            REPL=\$(docker service ls --filter name=\\\$SRV --format '{{.Replicas}}')
 
-                            echo "Сервис: \$SRV | Реплики: \$REPL"
+                            echo "Сервис: \\\$SRV | Реплики: \\\$REPL"
 
-                            if [ "\$REPL" != "1/1" ]; then
-                                echo "❌ Ошибка: сервис \$SRV не поднялся корректно"
+                            if [ "\\\$REPL" != "1/1" ]; then
+                                echo "❌ Ошибка: сервис \\\$SRV не поднялся корректно (реплики: \\\$REPL)"
                                 FAILED=1
                             fi
                         done
@@ -80,13 +81,14 @@ pipeline {
                         echo "Ожидание 5 секунд перед проверкой ошибок..."
                         sleep 5
 
-                        echo "ПРОВЕРКА: отсутствие ошибок в docker service ps ${STACK}_web-server"
+                        echo "ПРОВЕРКА: отсутствие ошибок в docker service ps ${env.STACK}_web-server"
 
-                        ERRORS=\$(docker service ps ${STACK}_web-server --format '{{.Error}}' | grep -v '^$' || true)
+                        # Собираем значения колонки Error (пустые строки фильтруются)
+                        ERRORS=\$(docker service ps ${env.STACK}_web-server --format '{{.Error}}' | grep -v '^$' || true)
 
-                        if [ ! -z "\$ERRORS" ]; then
-                            echo "❌ Ошибка найдена в web-server:"
-                            echo "\$ERRORS"
+                        if [ ! -z "\\\$ERRORS" ]; then
+                            echo "❌ Ошибка(и) найдены в ${env.STACK}_web-server:"
+                            echo "\\\$ERRORS"
                             exit 1
                         fi
 
@@ -98,9 +100,10 @@ pipeline {
 
         stage('6. Финальный вывод') {
             steps {
+                // здесь используем Groovy-подстановку env.STACK в строке оболочки
                 sh 'docker service ls'
-                sh "docker service ps ${STACK}_web-server || true"
-                sh "docker service ps ${STACK}_db || true"
+                sh "docker service ps ${env.STACK}_web-server || true"
+                sh "docker service ps ${env.STACK}_db || true"
             }
         }
     }
