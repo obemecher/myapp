@@ -5,7 +5,7 @@ services:
     image: mariadb:10.6
     environment:
       MYSQL_ROOT_PASSWORD: "secret"
-      MYSQL_DATABASE: "MainDaa"
+      MYSQL_DATABASE: "MainData"
     volumes:
       - mysql-data:/var/lib/mysql
     networks:
@@ -14,7 +14,7 @@ services:
   web-server:
     image: qlayinn/cb
     volumes:
-      - ./app:/var/www/html
+      - ./app:/var/www/ht
     ports:
       - "80:80"
     depends_on:
