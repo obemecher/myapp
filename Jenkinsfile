@@ -53,7 +53,7 @@ pipeline {
                         retries=0
                         max_retries=${MAX_RETRIES}
                         success=false
-                        stack="${STACK}"
+                        stack="\${STACK}"
 
                         while [ \$retries -lt \$max_retries ]; do
                             echo "Попытка проверки сервисов: \$((retries + 1))"
@@ -95,21 +95,17 @@ pipeline {
             steps {
                 script {
                     sh """#!/bin/bash
-                        echo "Проверка ошибок в задачах сервиса ${STACK}_web-server..."
+                        echo "Проверка ошибок в задачах сервиса \${STACK}_web-server..."
 
-                        # Получаем все значения из столбца ERROR для задач web-server
-                        errors=\$(docker service ps --no-trunc --format '{{.Error}}' ${STACK}_web-server)
+                        errors=\$(docker service ps --no-trunc --format '{{.Error}}' \${STACK}_web-server)
 
-                        # Удаляем пустые строки и проверяем, есть ли хоть какая-то ошибка
-                        non_empty_errors=\$(echo "\$errors" | grep -v '^$')
-
-                        if [[ -n "\$non_empty_errors" ]]; then
-                            echo "Обнаружены ошибки в задачах сервиса ${STACK}_web-server:"
-                            echo "\$non_empty_errors"
+                        if echo "\$errors" | grep -q '[^[:space:]]'; then
+                            echo "Обнаружены ошибки в задачах сервиса \${STACK}_web-server:"
+                            echo "\$errors"
                             echo "Билд завершается с ошибкой."
                             exit 1
                         else
-                            echo "Ошибок в задачах сервиса ${STACK}_web-server не обнаружено."
+                            echo "Ошибок в задачах сервиса \${STACK}_web-server не обнаружено."
                         fi
                     """
                 }
