@@ -7,6 +7,7 @@ pipeline {
     }
 
     stages {
+
         stage('1. Проверка Docker Swarm') {
             steps {
                 script {
@@ -48,10 +49,11 @@ pipeline {
                         sleep 10
 
                         echo "ПРОВЕРКА: что все сервисы поднялись и имеют REPLICAS 1/1"
+
                         FAILED=0
                         for SRV in \$(docker service ls --format '{{.Name}}'); do
                             REPL=\$(docker service ls --filter name=\$SRV --format '{{.Replicas}}')
-                            
+
                             echo "Сервис: \$SRV | Реплики: \$REPL"
 
                             if [ "\$REPL" != "1/1" ]; then
@@ -80,7 +82,6 @@ pipeline {
 
                         echo "ПРОВЕРКА: отсутствие ошибок в docker service ps ${STACK}_web-server"
 
-                        # Если колонка ERROR пуста — всё ок
                         ERRORS=\$(docker service ps ${STACK}_web-server --format '{{.Error}}' | grep -v '^$' || true)
 
                         if [ ! -z "\$ERRORS" ]; then
