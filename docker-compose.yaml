@@ -1,0 +1,43 @@
+version: "3.8"
+
+services:
+  db:
+    image: mariadb:10.6
+    environment:
+      MYSQL_ROOT_PASSWORD: "secret"
+      MYSQL_DATABASE: "MainData"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - app_net
+
+  web-server:
+    image: qlayinn/cb
+    volumes:
+      - ./app:/var/www/html
+    ports:
+      - "80:80"
+    depends_on:
+      - db
+    networks:
+      - app_net
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:5.0.1
+    environment:
+      PMA_HOST: "db"
+      PMA_USER: "root"
+      PMA_PASSWORD: "secret"
+    ports:
+      - "5000:80"
+    depends_on:
+      - db
+    networks:
+      - app_net
+
+volumes:
+  mysql-data:
+
+networks:
+  app_net:
+    driver: overlay
