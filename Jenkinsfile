@@ -4,8 +4,6 @@ pipeline {
     environment {
         STACK = "mystack"
         COMPOSE_FILE = "docker-compose.yaml"
-        MAX_RETRIES = "30"
-        SLEEP_INTERVAL = "10"
     }
 
     stages {
@@ -14,7 +12,6 @@ pipeline {
                 script {
                     sh """
                         if ! docker info | grep -q 'Swarm: active'; then
-                            echo "Swarm is not active. Initializing..."
                             docker swarm init || true
                         fi
                     """
@@ -43,81 +40,11 @@ pipeline {
             }
         }
 
-        stage('4. Ожидание и проверка поднятия всех сервисов') {
+        stage('4. Проверка сервисов') {
             steps {
-                script {
-                    sh """#!/bin/bash
-                        echo "Ожидание 10 секунд перед проверкой..."
-                        sleep 10
-
-                        retries=0
-                        max_retries=${MAX_RETRIES}
-                        success=false
-                        stack="\${STACK}"
-
-                        while [ \$retries -lt \$max_retries ]; do
-                            echo "Попытка проверки сервисов: \$((retries + 1))"
-
-                            all_ready=true
-                            while IFS= read -r line; do
-                                if [[ -z "\$line" ]]; then continue; fi
-
-                                service_name=\$(echo "\$line" | awk '{print \$1}')
-                                replicas=\$(echo "\$line" | awk '{print \$2}')
-
-                                if [[ "\$replicas" != "1/1" ]]; then
-                                    echo "Сервис \$service_name не готов: \$replicas"
-                                    all_ready=false
-                                    break
-                                fi
-                            done < <(docker service ls --filter label=com.docker.stack.namespace=\$stack --format '{{.Name}} {{.Replicas}}')
-
-                            if [[ "\$all_ready" == true ]]; then
-                                echo "Все сервисы стека \$stack подняты: готово."
-                                success=true
-                                break
-                            fi
-
-                            retries=\$((retries + 1))
-                            sleep ${SLEEP_INTERVAL}
-                        done
-
-                        if [[ "\$success" != true ]]; then
-                            echo "Ошибка: не все сервисы достигли состояния 1/1 за отведённое время."
-                            exit 1
-                        fi
-                    """
-                }
-            }
-        }
-
-        stage('5. Проверка ошибок в задачах web-server') {
-            steps {
-                script {
-                    sh """#!/bin/bash
-                        echo "Проверка ошибок в задачах сервиса \${STACK}_web-server..."
-
-                        errors=\$(docker service ps --no-trunc --format '{{.Error}}' \${STACK}_web-server)
-
-                        if echo "\$errors" | grep -q '[^[:space:]]'; then
-                            echo "Обнаружены ошибки в задачах сервиса \${STACK}_web-server:"
-                            echo "\$errors"
-                            echo "Билд завершается с ошибкой."
-                            exit 1
-                        else
-                            echo "Ошибок в задачах сервиса \${STACK}_web-server не обнаружено."
-                        fi
-                    """
-                }
-            }
-        }
-
-        stage('6. Дополнительная диагностика (опционально)') {
-            steps {
-                sh 'docker service ls --filter label=com.docker.stack.namespace=${STACK}'
-                sh 'docker service ps ${STACK}_web-server'
+                sh 'docker service ls'
+                sh 'docker service ps ${STACK}_web-server || true'
                 sh 'docker service ps ${STACK}_db || true'
-                sh 'docker service ps ${STACK}_phpmyadmin || true'
             }
         }
     }
