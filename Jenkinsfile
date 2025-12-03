@@ -2,115 +2,96 @@ pipeline {
     agent any
 
     environment {
-        STACK         = "delivery-service"
-        COMPOSE_FILE  = "docker-compose.yaml"
-        APP_DIR       = "app"
+        STACK = "student-delivery"
+        COMPOSE_FILE = "docker-compose.yaml"
+        SITE_URL = "http://localhost"   // сюда поставь URL своего сайта
     }
 
     stages {
-        stage('1. Проверка PHP-синтаксиса') {
-            steps {
-                script {
-                    echo "🔎 Проверка синтаксиса всех .php файлов в папке ${APP_DIR}/..."
 
-                    // Ищем все .php файлы
-                    def files = sh(
-                        script: "find ${APP_DIR} -type f -name '*.php' | sort",
-                        returnStdout: true
-                    ).trim()
-
-                    if (!files) {
-                        echo "⚠️ Нет PHP-файлов для проверки."
-                        return
-                    }
-
-                    def fileList = files.split('\n')
-                    echo "Найдено файлов: ${fileList.size()}"
-
-                    // Проверяем каждый файл
-                    for (file in fileList) {
-                        file = file.trim()
-                        if (file) {
-                            echo "Проверяю: $file"
-                            sh "php -l '$file'"
-                        }
-                    }
-
-                    echo "✅ Все PHP-файлы прошли синтаксическую проверку."
-                }
-            }
-        }
-
-        stage('2. Поиск опасных функций') {
-            steps {
-                script {
-                    echo "🔍 Поиск потенциально опасных функций в коде..."
-
-                    def result = sh(
-                        script: "grep -r --include='*.php' -E 'eval|exec|shell_exec|system|passthru|popen|assert' ${APP_DIR}/ || true",
-                        returnStdout: true
-                    ).trim()
-
-                    if (result) {
-                        echo "⚠️ Найдены подозрительные вызовы:\n${result}"
-                        // Опционально: раскомментируйте, чтобы остановить сборку
-                        // error("Обнаружены опасные функции в коде!")
-                    } else {
-                        echo "✅ Опасные функции не найдены."
-                    }
-                }
-            }
-        }
-
-        stage('3. Проверка Docker Swarm') {
-            steps {
-                script {
-                    sh '''
-                        if ! docker info 2>/dev/null | grep -q "Swarm: active"; then
-                            echo "Инициализация Docker Swarm..."
-                            docker swarm init
-                        fi
-                    '''
-                }
-            }
-        }
-
-        stage('4. Очистка старого стека') {
+        stage('1. Проверка наличия важных файлов') {
             steps {
                 script {
                     sh """
-                        docker stack rm ${STACK} || true
-                        sleep 10
+                        echo 'Проверяем структуру проекта...'
+                        test -f app/connect.php
+                        test -f app/login.php
+                        test -f app/main.php
                     """
                 }
             }
         }
 
-        stage('5. Развертывание стека') {
+        stage('2. PHP Lint') {
             steps {
                 script {
                     sh """
+                        echo 'Проверяем синтаксис PHP-файлов...'
+                        find app -name '*.php' -print0 | xargs -0 -n1 php -l
+                    """
+                }
+            }
+        }
+
+        stage('3. Проверка переменных в connect.php') {
+            steps {
+                script {
+                    sh """
+                        echo 'Проверяем наличие нужных параметров подключения...'
+                        grep -q "servername" app/connect.php
+                        grep -q "username" app/connect.php
+                        grep -q "password" app/connect.php
+                        grep -q "dbname" app/connect.php
+                    """
+                }
+            }
+        }
+
+        stage('4. Проверка Docker окружения') {
+            steps {
+                script {
+                    sh """
+                        if ! docker info | grep -q 'Swarm: active'; then
+                            docker swarm init || true
+                        fi
+                    """
+                }
+            }
+        }
+
+        stage('5. Деплой стека') {
+            steps {
+                script {
+                    sh """
+                        docker stack rm ${STACK} || true
+                        sleep 5
                         docker stack deploy --with-registry-auth -c ${COMPOSE_FILE} ${STACK}
                     """
                 }
             }
         }
 
-        stage('6. Проверка запущенных сервисов') {
+        stage('6. Проверка что сайт отвечает') {
             steps {
-                sh 'docker service ls'
-                sh "docker service ps ${STACK}_web-server || true"
-                sh "docker service ps ${STACK}_db-galera || true"
+                script {
+                    sh """
+                        echo 'Ожидаем поднятие сервиса...'
+                        sleep 10
+
+                        echo 'Пробуем открыть сайт: ${SITE_URL}'
+                        curl -I --silent --fail ${SITE_URL} | head -n 1
+                    """
+                }
             }
         }
     }
 
     post {
         success {
-            echo "✅ Пайплайн успешно завершён. Приложение развернуто."
+            echo "Пайплайн успешно выполнен!"
         }
         failure {
-            echo "❌ Пайплайн завершился с ошибкой."
+            echo "Пайплайн завершился с ошибкой."
         }
     }
 }
