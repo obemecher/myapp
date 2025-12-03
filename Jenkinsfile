@@ -2,19 +2,41 @@ pipeline {
     agent any
 
     environment {
-        STACK = "delivery-service"
-        COMPOSE_FILE = "docker-compose.yaml"
-        APP_DIR = "app"
+        STACK         = "delivery-service"
+        COMPOSE_FILE  = "docker-compose.yaml"
+        APP_DIR       = "app"
     }
 
     stages {
         stage('1. Проверка PHP-синтаксиса') {
             steps {
                 script {
-                    echo "Проверка синтаксиса PHP-файлов..."
-                    findFiles(glob: "${APP_DIR}/**/*.php").each { file ->
-                        sh "php -l ${file.path}"
+                    echo "🔎 Проверка синтаксиса всех .php файлов в папке ${APP_DIR}/..."
+
+                    // Ищем все .php файлы
+                    def files = sh(
+                        script: "find ${APP_DIR} -type f -name '*.php' | sort",
+                        returnStdout: true
+                    ).trim()
+
+                    if (!files) {
+                        echo "⚠️ Нет PHP-файлов для проверки."
+                        return
                     }
+
+                    def fileList = files.split('\n')
+                    echo "Найдено файлов: ${fileList.size()}"
+
+                    // Проверяем каждый файл
+                    for (file in fileList) {
+                        file = file.trim()
+                        if (file) {
+                            echo "Проверяю: $file"
+                            sh "php -l '$file'"
+                        }
+                    }
+
+                    echo "✅ Все PHP-файлы прошли синтаксическую проверку."
                 }
             }
         }
@@ -22,16 +44,17 @@ pipeline {
         stage('2. Поиск опасных функций') {
             steps {
                 script {
-                    echo "Поиск потенциально опасных функций (eval, shell_exec и т.п.)..."
-                    def dangerous = sh(
-                        script: "grep -rE 'eval|exec|shell_exec|system|passthru|popen' ${APP_DIR}/ || true",
+                    echo "🔍 Поиск потенциально опасных функций в коде..."
+
+                    def result = sh(
+                        script: "grep -r --include='*.php' -E 'eval|exec|shell_exec|system|passthru|popen|assert' ${APP_DIR}/ || true",
                         returnStdout: true
                     ).trim()
 
-                    if (dangerous) {
-                        echo "⚠️ Обнаружены потенциально опасные функции:\n${dangerous}"
-                        // Можно либо остановить, либо просто предупредить
-                        // error("Найдены опасные функции в коде!")
+                    if (result) {
+                        echo "⚠️ Найдены подозрительные вызовы:\n${result}"
+                        // Опционально: раскомментируйте, чтобы остановить сборку
+                        // error("Обнаружены опасные функции в коде!")
                     } else {
                         echo "✅ Опасные функции не найдены."
                     }
@@ -42,12 +65,12 @@ pipeline {
         stage('3. Проверка Docker Swarm') {
             steps {
                 script {
-                    sh """
-                        if ! docker info | grep -q 'Swarm: active'; then
+                    sh '''
+                        if ! docker info 2>/dev/null | grep -q "Swarm: active"; then
                             echo "Инициализация Docker Swarm..."
-                            docker swarm init || true
+                            docker swarm init
                         fi
-                    """
+                    '''
                 }
             }
         }
