@@ -24,7 +24,7 @@ services:
         condition: any
       placement:
         constraints:
-          - node.hostname == master
+          - node.hostname != master
     networks:
       - app_net
 
