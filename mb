@@ -1,0 +1,4 @@
+sudo galera_new_cluster
+sudo nano /var/lib/mysql/grastate.dat
+sudo systemctl stop mariadb
+
