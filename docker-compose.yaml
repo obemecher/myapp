@@ -19,6 +19,12 @@ services:
       - "80:80"
     depends_on:
       - db
+    deploy:
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == master
     networks:
       - app_net
 
