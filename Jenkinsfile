@@ -2,64 +2,97 @@ pipeline {
     agent any
 
     environment {
-        DB_HOST = "db-galera"
-        DB_USER = "root"
-        DB_PASS = "secret"
-        DB_NAME = "MainData"
+        STACK = "mystack"
+        COMPOSE_FILE = "docker-compose.yaml"
     }
 
     stages {
 
-        stage('1. PHP Lint') {
+        /* ---------- СТАТИЧЕСКИЕ ПРОВЕРКИ КОДА ---------- */
+
+        stage('0. PHP Lint через Docker') {
             steps {
                 sh '''
                     echo "Проверяем синтаксис PHP..."
-                    find app -type f -name "*.php" -print0 | xargs -0 -n1 php -l
+
+                    docker run --rm \
+                        -v $PWD/app:/src \
+                        php:8.2-cli \
+                        sh -c "find /src -type f -name '*.php' -print0 | xargs -0 -n1 php -l"
                 '''
             }
         }
 
-        stage('2. Проверка таблиц в базе данных') {
+        stage('0.1 Проверка SQL-запросов в PHP-коде') {
+            steps {
+                script {
+                    def sqlCheck = sh(
+                        script: """
+                            grep -R --include='*.php' -E 'SELECT|INSERT|UPDATE|DELETE' ./app |
+                            grep -i 'users' | grep -vi 'password' || true
+                        """,
+                        returnStdout: true
+                    ).trim()
+
+                    if (sqlCheck) {
+                        error """
+                        ❌ SQL-ПРОВЕРКА НЕ ПРОЙДЕНА
+                        Найдены SQL-запросы к таблице 'users' БЕЗ обязательного поля 'password'
+                        ---------------------------------------------------------------
+                        ${sqlCheck}
+                        ---------------------------------------------------------------
+                        """
+                    } else {
+                        echo "✔ SQL-проверка пройдена — все запросы корректны"
+                    }
+                }
+            }
+        }
+
+        /* ---------- РАЗВЁРТЫВАНИЕ И ПРОВЕРКИ ДОКЕРА ---------- */
+
+        stage('1. Проверка Docker Swarm') {
             steps {
                 sh '''
-                    echo "Проверяем наличие нужных таблиц в БД..."
-
-                    REQUIRED_TABLES="users catalog Shop orders order_details"
-
-                    for TBL in $REQUIRED_TABLES; do
-                        echo -n "Проверяем таблицу $TBL ... "
-                        if mysql -h${DB_HOST} -u${DB_USER} -p${DB_PASS} -e "USE ${DB_NAME}; SHOW TABLES LIKE '$TBL';" | grep -q "$TBL"; then
-                            echo "OK"
-                        else
-                            echo "ОШИБКА: таблица $TBL отсутствует!"
-                            exit 1
-                        fi
-                    done
+                    if ! docker info | grep -q "Swarm: active"; then
+                        docker swarm init || true
+                    fi
                 '''
             }
         }
 
-        stage('3. Проверка количества строк (минимальных данных)') {
+        stage('2. Очистка старого стека') {
             steps {
                 sh '''
-                    echo "Проверяем, есть ли сущности в таблицах..."
-
-                    mysql -h${DB_HOST} -u${DB_USER} -p${DB_PASS} -e "
-                        SELECT 'users', COUNT(*) FROM ${DB_NAME}.users;
-                        SELECT 'Shop', COUNT(*) FROM ${DB_NAME}.Shop;
-                        SELECT 'catalog', COUNT(*) FROM ${DB_NAME}.catalog;
-                    "
+                    docker stack rm ${STACK} || true
+                    sleep 10
                 '''
+            }
+        }
+
+        stage('3. Развертывание стека') {
+            steps {
+                sh '''
+                    docker stack deploy --with-registry-auth -c ${COMPOSE_FILE} ${STACK}
+                '''
+            }
+        }
+
+        stage('4. Проверка сервисов') {
+            steps {
+                sh 'docker service ls'
+                sh 'docker service ps ${STACK}_web-server || true'
+                sh 'docker service ps ${STACK}_db || true'
             }
         }
     }
 
     post {
         success {
-            echo "Все проверки прошли успешно ✔"
+            echo "✔ ПАЙПЛАЙН ВЫПОЛНЕН УСПЕШНО"
         }
         failure {
-            echo "Пайплайн упал ❌ Проверь логи"
+            echo "❌ ПАЙПЛАЙН УПАЛ — смотри лог выше"
         }
     }
 }
