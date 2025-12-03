@@ -22,9 +22,6 @@ services:
     deploy:
       restart_policy:
         condition: any
-      placement:
-        constraints:
-          - node.hostname != master
     networks:
       - app_net
 
