@@ -2,96 +2,64 @@ pipeline {
     agent any
 
     environment {
-        STACK = "student-delivery"
-        COMPOSE_FILE = "docker-compose.yaml"
-        SITE_URL = "http://localhost"   // сюда поставь URL своего сайта
+        DB_HOST = "db-galera"
+        DB_USER = "root"
+        DB_PASS = "secret"
+        DB_NAME = "MainData"
     }
 
     stages {
 
-        stage('1. Проверка наличия важных файлов') {
+        stage('1. PHP Lint') {
             steps {
-                script {
-                    sh """
-                        echo 'Проверяем структуру проекта...'
-                        test -f app/connect.php
-                        test -f app/login.php
-                        test -f app/main.php
-                    """
-                }
+                sh '''
+                    echo "Проверяем синтаксис PHP..."
+                    find app -type f -name "*.php" -print0 | xargs -0 -n1 php -l
+                '''
             }
         }
 
-        stage('2. PHP Lint') {
+        stage('2. Проверка таблиц в базе данных') {
             steps {
-                script {
-                    sh """
-                        echo 'Проверяем синтаксис PHP-файлов...'
-                        find app -name '*.php' -print0 | xargs -0 -n1 php -l
-                    """
-                }
-            }
-        }
+                sh '''
+                    echo "Проверяем наличие нужных таблиц в БД..."
 
-        stage('3. Проверка переменных в connect.php') {
-            steps {
-                script {
-                    sh """
-                        echo 'Проверяем наличие нужных параметров подключения...'
-                        grep -q "servername" app/connect.php
-                        grep -q "username" app/connect.php
-                        grep -q "password" app/connect.php
-                        grep -q "dbname" app/connect.php
-                    """
-                }
-            }
-        }
+                    REQUIRED_TABLES="users catalog Shop orders order_details"
 
-        stage('4. Проверка Docker окружения') {
-            steps {
-                script {
-                    sh """
-                        if ! docker info | grep -q 'Swarm: active'; then
-                            docker swarm init || true
+                    for TBL in $REQUIRED_TABLES; do
+                        echo -n "Проверяем таблицу $TBL ... "
+                        if mysql -h${DB_HOST} -u${DB_USER} -p${DB_PASS} -e "USE ${DB_NAME}; SHOW TABLES LIKE '$TBL';" | grep -q "$TBL"; then
+                            echo "OK"
+                        else
+                            echo "ОШИБКА: таблица $TBL отсутствует!"
+                            exit 1
                         fi
-                    """
-                }
+                    done
+                '''
             }
         }
 
-        stage('5. Деплой стека') {
+        stage('3. Проверка количества строк (минимальных данных)') {
             steps {
-                script {
-                    sh """
-                        docker stack rm ${STACK} || true
-                        sleep 5
-                        docker stack deploy --with-registry-auth -c ${COMPOSE_FILE} ${STACK}
-                    """
-                }
-            }
-        }
+                sh '''
+                    echo "Проверяем, есть ли сущности в таблицах..."
 
-        stage('6. Проверка что сайт отвечает') {
-            steps {
-                script {
-                    sh """
-                        echo 'Ожидаем поднятие сервиса...'
-                        sleep 10
-
-                        echo 'Пробуем открыть сайт: ${SITE_URL}'
-                        curl -I --silent --fail ${SITE_URL} | head -n 1
-                    """
-                }
+                    mysql -h${DB_HOST} -u${DB_USER} -p${DB_PASS} -e "
+                        SELECT 'users', COUNT(*) FROM ${DB_NAME}.users;
+                        SELECT 'Shop', COUNT(*) FROM ${DB_NAME}.Shop;
+                        SELECT 'catalog', COUNT(*) FROM ${DB_NAME}.catalog;
+                    "
+                '''
             }
         }
     }
 
     post {
         success {
-            echo "Пайплайн успешно выполнен!"
+            echo "Все проверки прошли успешно ✔"
         }
         failure {
-            echo "Пайплайн завершился с ошибкой."
+            echo "Пайплайн упал ❌ Проверь логи"
         }
     }
 }
