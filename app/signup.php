@@ -5,7 +5,7 @@ require 'connect.php'; // подключение к БД через connect.php
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $login = $_POST['login'];
-    $password = $_POST['password']
+    $password = $_POST['password'];
     $familia = $_POST['familia'];
     $imya = $_POST['imya'];
     $otch = $_POST['otch'];
