@@ -1,7 +1,7 @@
 <?php
 session_start();
 
-require 'connect.php'; // подключение к БД через connect.php
+req 'connect.php'; // подключение к БД через connect.php
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $log = $_POST['login'];
