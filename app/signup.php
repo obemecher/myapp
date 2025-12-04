@@ -7,7 +7,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $login = $_POST['login'];
     $password = $_POST['password'];
     $familia = $_POST['familia'];
-    $imya = $_POST['imya'];
+    $imya = $_POST['imya']
     $otch = $_POST['otch'];
     $contacts = $_POST['contacts'];
 
